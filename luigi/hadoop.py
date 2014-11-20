@@ -416,7 +416,7 @@ class HadoopJobRunner(JobRunner):
         files = [runner_path, self.tmp_dir + '/packages.tar', self.tmp_dir + '/job-instance.pickle']
 
         for f in files:
-            arglist += ['-file', f]
+            arglist += ['-files', f]
 
         if self.output_format:
             arglist += ['-outputformat', self.output_format]
