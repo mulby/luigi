@@ -20,6 +20,8 @@ This module contains the main() method which will be used to run the
 mapper and reducer on the Hadoop nodes.
 """
 
+import cProfile
+import errno
 import os
 import sys
 import tarfile
@@ -36,7 +38,42 @@ class Runner(object):
         self.job = job or pickle.load(open("job-instance.pickle"))
         self.job._setup_remote()
 
-    def run(self, kind, stdin=sys.stdin, stdout=sys.stdout):
+    def run(self, *args, **kwargs):
+        profiler = os.getenv('luigi_runner_profiler')
+        if profiler:
+            attempt_id = os.getenv('mapred_task_id', os.getenv('mapreduce_task_attempt_id', os.getpid()))
+            job_id = os.getenv('mapred_job_id', os.getenv('mapreduce_job_id', 'unknown_job'))
+            base_path = os.getenv('luigi_runner_profiler_path')
+            profile_capture_path = os.path.join(base_path, job_id, attempt_id + '.' + profiler + '.profile')
+            try:
+                os.makedirs(os.path.dirname(profile_capture_path))
+            except OSError as exception:
+                if exception.errno != errno.EEXIST:
+                    profiler = None
+
+        if not profiler:
+            self.run_internal(*args, **kwargs)
+        else:
+            profiler = profiler.lower()
+            if profiler == 'cprofile':
+                cProfile.runctx('self.run_internal(*args, **kwargs)', globals(), locals(), profile_capture_path)
+            elif profiler == 'pyinstrument':
+                try:
+                    from pyinstrument import Profiler
+                except ImportError:
+                    self.run_internal(*args, **kwargs)
+                else:
+                    profiler = Profiler(use_signal=False)
+                    profiler.start()
+                    try:
+                        self.run_internal(*args, **kwargs)
+                    finally:
+                        profiler.stop()
+                        profiler.save(filename=profile_capture_path)
+            else:
+                self.run_internal(*args, **kwargs)
+
+    def run_internal(self, kind, stdin=sys.stdin, stdout=sys.stdout):
         if kind == "map":
             self.job._run_mapper(stdin, stdout)
         elif kind == "combiner":
